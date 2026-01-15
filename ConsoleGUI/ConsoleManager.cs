@@ -150,14 +150,18 @@ namespace ConsoleGUI
 
 					if (!_buffer.Update(position, cell)) continue;
 
+					
 					if (cell.Character.Content.HasValue)
 					{
+						
 						acsb.MoveCursorTo(y, x);
-						//if (cell.Character.Background.HasValue)
-						//	acsb.SetBackgroundColor(cell.Character.Background.Value.Red, cell.Character.Background.Value.Green, cell.Character.Background.Value.Blue);
-						//if (cell.Character.Foreground.HasValue)
-						//	acsb.SetForegroundColor(cell.Character.Foreground.Value.Red, cell.Character.Foreground.Value.Green, cell.Character.Foreground.Value.Blue);						
+						if (cell.Character.Background.HasValue)
+							acsb.SetBackgroundColor(cell.Character.Background.Value.Red, cell.Character.Background.Value.Green, cell.Character.Background.Value.Blue);
+						if (cell.Character.Foreground.HasValue)
+							acsb.SetForegroundColor(cell.Character.Foreground.Value.Red, cell.Character.Foreground.Value.Green, cell.Character.Foreground.Value.Blue);						
 						acsb.PrintChar(cell.Character.Content.Value);
+						
+						//Console.Write(position, cell.Character);
 					}
                 }
             }

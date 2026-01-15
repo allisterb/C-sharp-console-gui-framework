@@ -40,7 +40,10 @@ namespace ConsoleGUI.Space
 				position.Y < Height;
 		}
 
-		public Rect AsRect() => new Rect(0, 0, Width, Height);
+		public bool Contains (int X,  int Y) =>
+            X >= 0 && Y >= 0 && X < Width && Y < Height;
+
+        public Rect AsRect() => new Rect(0, 0, Width, Height);
 
 		public Size Expand(int width, int height) => new Size(Width + width, Height + height);
 		public Size Shrink(int width, int height) => new Size(Width - width, Height - height);

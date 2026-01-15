@@ -44,7 +44,7 @@ namespace ConsoleGUI.Common
 		{
 			get
 			{
-				return Child[position.Move(-Offset)];
+				return Child[position.Move(-Offset.X, -Offset.Y)];
 			}
 		}
 
@@ -71,7 +71,7 @@ namespace ConsoleGUI.Common
 		{
 			if (Child == null) return false;
 
-			return Child.Size.Contains(position.Move(-Offset));
+			return Child.Size.Contains(position.X - Offset.X, position.Y - Offset.Y);
 		}
 
 		public void Redraw(IControl control)

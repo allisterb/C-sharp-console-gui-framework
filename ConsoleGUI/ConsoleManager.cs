@@ -11,6 +11,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
+using Vezel.Cathode.Text.Control;
 
 namespace ConsoleGUI
 {
@@ -132,7 +134,9 @@ namespace ConsoleGUI
 		{
 			StartDrawTimer();
 
-			Console.OnRefresh();
+			var acsb = new AnsiControlSequenceBuilder();
+		
+            Console.OnRefresh();
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
 			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
 
@@ -146,24 +150,25 @@ namespace ConsoleGUI
 
 					if (!_buffer.Update(position, cell)) continue;
 
-					try
+					if (cell.Character.Content.HasValue)
 					{
-						Console.Write(position, cell.Character);
+						acsb.MoveCursorTo(y, x);
+						//if (cell.Character.Background.HasValue)
+						//	acsb.SetBackgroundColor(cell.Character.Background.Value.Red, cell.Character.Background.Value.Green, cell.Character.Background.Value.Blue);
+						//if (cell.Character.Foreground.HasValue)
+						//	acsb.SetForegroundColor(cell.Character.Foreground.Value.Red, cell.Character.Foreground.Value.Green, cell.Character.Foreground.Value.Blue);						
+						acsb.PrintChar(cell.Character.Content.Value);
 					}
-					catch (SafeConsoleException)
-					{
-						rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
-					}
-				}
-			}
-
-			StopDrawTimer();
+                }
+            }
+			Task.Run(acsb.WriteToSystemConsole);
+            StopDrawTimer();
         }
 
 		public static void Setup()
 		{
-			Resize(WindowSize);
-		}
+            Resize(WindowSize);            
+        }
 
 		public static void Resize(in Size size)
 		{

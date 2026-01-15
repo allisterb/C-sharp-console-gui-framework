@@ -8,6 +8,7 @@ using ConsoleGUI.Space;
 using ConsoleGUI.Utils;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 
@@ -129,8 +130,9 @@ namespace ConsoleGUI
 
 		private static void Update(Rect rect)
 		{
-			Console.OnRefresh();
+			StartDrawTimer();
 
+			Console.OnRefresh();
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
 			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
 
@@ -154,7 +156,9 @@ namespace ConsoleGUI
 					}
 				}
 			}
-		}
+
+			StopDrawTimer();
+        }
 
 		public static void Setup()
 		{
@@ -207,5 +211,39 @@ namespace ConsoleGUI
 				? _buffer.GetMouseContext(MousePosition.Value)
 				: null;
 		}
-	}
+
+        public static double AverageDrawTime
+        {
+            get
+            {
+                long total = 0;
+                int count = 0;
+                foreach (var time in drawTimes)
+                {
+                    if (time > 0)
+                    {
+                        total += time;
+                        count++;
+                    }
+                }
+                return count > 0 ? (double)total / count : 0;
+            }
+        }
+
+        public static void StartDrawTimer() => drawTimer.Restart();
+                
+		public static void StopDrawTimer()
+        {
+            drawTimer.Stop();
+            drawTimes[drawTimeIndex] = drawTimer.ElapsedMilliseconds;
+            drawTimeIndex = (drawTimeIndex + 1) % drawTimeSamples;
+        }
+
+        private static readonly int drawTimeSamples = 60;	
+        private static readonly long[] drawTimes = new long[drawTimeSamples];
+		private static readonly Stopwatch drawTimer = new Stopwatch();		
+        private static int drawTimeIndex = 0;
+    }
+
+	
 }

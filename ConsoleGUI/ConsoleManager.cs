@@ -125,7 +125,7 @@ namespace ConsoleGUI
 			Redraw();
 		}
 
-		private static void Redraw()
+		public static void Redraw()
 		{
 			Update(ContentContext.Size.AsRect());
 		}
@@ -152,17 +152,16 @@ namespace ConsoleGUI
 
 					
 					if (cell.Character.Content.HasValue)
-					{
-						
+					{						
 						acsb.MoveCursorTo(y, x);
 						if (cell.Character.Background.HasValue)
 							acsb.SetBackgroundColor(cell.Character.Background.Value.Red, cell.Character.Background.Value.Green, cell.Character.Background.Value.Blue);
 						if (cell.Character.Foreground.HasValue)
 							acsb.SetForegroundColor(cell.Character.Foreground.Value.Red, cell.Character.Foreground.Value.Green, cell.Character.Foreground.Value.Blue);						
-						acsb.PrintChar(cell.Character.Content.Value);
-						
+						acsb.PrintChar(cell.Character.Content.Value);						
 						//Console.Write(position, cell.Character);
 					}
+				
                 }
             }
 			Task.Run(acsb.WriteToSystemConsole);
@@ -182,10 +181,17 @@ namespace ConsoleGUI
 			Initialize();
 		}
 
-		public static void AdjustBufferSize()
+		public static bool AdjustBufferSize()
 		{
 			if (WindowSize != BufferSize)
+			{
 				Resize(WindowSize);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
 		}
 
 		public static void AdjustWindowSize()

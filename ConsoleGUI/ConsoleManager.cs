@@ -140,6 +140,15 @@ namespace ConsoleGUI
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
 			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
 
+			Color? currentFg = null;
+			Color? currentBg = null;
+			bool? currentBlink = null;
+			bool? currentInvert = null;
+			bool? currentUnderline = null;
+
+			int lastY = -1;
+			int lastX = -1;
+
 			for (int y = rect.Top; y <= rect.Bottom; y++)
 			{
 				for (int x = rect.Left; x <= rect.Right; x++)
@@ -148,84 +157,138 @@ namespace ConsoleGUI
 
 					var cell = ContentContext[position];
 
-					if (!_buffer.Update(position, cell)) continue;
-
-					
+					if (!_buffer.Update(position, cell)) continue;					
 					if (cell.Character.Content.HasValue)
-					{						
-						acsb.MoveCursorTo(y, x);
-						if (cell.Character.Background.HasValue)
-							acsb.SetBackgroundColor(cell.Character.Background.Value.Red, cell.Character.Background.Value.Green, cell.Character.Background.Value.Blue);
-						if (cell.Character.Foreground.HasValue)
-							acsb.SetForegroundColor(cell.Character.Foreground.Value.Red, cell.Character.Foreground.Value.Green, cell.Character.Foreground.Value.Blue);						
-						acsb.PrintChar(cell.Character.Content.Value);						
-						//Console.Write(position, cell.Character);
+					{
+						if (y != lastY || x != lastX + 1)
+						{
+							acsb.MoveCursorTo(y, x);
+						}
+
+						WriteAnsiConsole(cell.Character, acsb, ref currentFg, ref currentBg, ref currentBlink, ref currentInvert, ref currentUnderline);
+						
+						lastY = y;
+						lastX = x;
 					}
-				
                 }
             }
+			acsb.ResetAttributes();
 			Task.Run(acsb.WriteToSystemConsole);
             StopDrawTimer();
         }
 
-		public static void Setup()
-		{
-            Resize(WindowSize);            
+        public static void Setup()
+        {
+            Resize(WindowSize);
         }
 
-		public static void Resize(in Size size)
+        private static void WriteAnsiConsole(
+			in Character character, 
+			AnsiControlSequenceBuilder acsb,
+			ref Color? currentFg,
+			ref Color? currentBg,
+			ref bool? currentBlink,
+			ref bool? currentInvert,
+			ref bool? currentUnderline)
 		{
-			Console.Size = size;
-			_buffer.Initialize(size);
+			bool decorationChanged = character.Blink != currentBlink || 
+									 character.Invert != currentInvert || 
+									 character.Underline != currentUnderline;
 
-			Initialize();
-		}
-
-		public static bool AdjustBufferSize()
-		{
-			if (WindowSize != BufferSize)
+			if (decorationChanged)
 			{
-				Resize(WindowSize);
-				return true;
+				acsb.SetDecorations(
+					blink: character.Blink ?? false,
+					invert: character.Invert ?? false,
+					underline: character.Underline ?? false);
+				
+				currentBlink = character.Blink;
+				currentInvert = character.Invert;
+				currentUnderline = character.Underline;
+				
+				// SetDecorations might reset colors in some terminals or builders if not careful, 
+				// but here we just ensure colors are set after if needed.
+				// In this builder, SetDecorations appends m codes. 
+				// If we changed decorations, we might need to re-apply colors if ResetAttributes was used internally, 
+				// but SetDecorations here doesn't seem to reset.
 			}
-			else
+
+			if (character.Foreground != currentFg)
 			{
-				return false;
+				if (character.Foreground.HasValue)
+					acsb.SetForegroundColor(character.Foreground.Value.Red, character.Foreground.Value.Green, character.Foreground.Value.Blue);
+				else
+					acsb.Print("\x1b[39m"); // Default foreground
+
+				currentFg = character.Foreground;
 			}
-		}
 
-		public static void AdjustWindowSize()
-		{
-			if (WindowSize != BufferSize)
-				Resize(BufferSize);
-		}
-
-		public static void ReadInput(IReadOnlyCollection<IInputListener> controls)
-		{
-			while (Console.KeyAvailable)
+			if (character.Background != currentBg)
 			{
-				var key = Console.ReadKey();
-				var inputEvent = new InputEvent(key);
+				if (character.Background.HasValue)
+					acsb.SetBackgroundColor(character.Background.Value.Red, character.Background.Value.Green, character.Background.Value.Blue);
+				else
+					acsb.Print("\x1b[49m"); // Default background
 
-				foreach (var control in controls)
-				{
-					control?.OnInput(inputEvent);
-					if (inputEvent.Handled) break;
-				}
+				currentBg = character.Background;
 			}
+
+			acsb.PrintChar(character.Content ?? ' ');
 		}
 
-		private static void BindContent()
-		{
-			ContentContext = new DrawingContext(new ConsoleManagerDrawingContextListener(), Content);
-		}
+        public static void Resize(in Size size)
+        {
+            Console.Size = size;
+            _buffer.Initialize(size);
 
-		private static void UpdateMouseContext()
-		{
-			MouseContext = MousePosition.HasValue
-				? _buffer.GetMouseContext(MousePosition.Value)
-				: null;
-		}
+            Initialize();
+        }
+
+        public static bool AdjustBufferSize()
+        {
+            if (WindowSize != BufferSize)
+            {
+                Resize(WindowSize);
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        public static void AdjustWindowSize()
+        {
+            if (WindowSize != BufferSize)
+                Resize(BufferSize);
+        }
+
+        public static void ReadInput(IReadOnlyCollection<IInputListener> controls)
+        {
+            while (Console.KeyAvailable)
+            {
+                var key = Console.ReadKey();
+                var inputEvent = new InputEvent(key);
+
+                foreach (var control in controls)
+                {
+                    control?.OnInput(inputEvent);
+                    if (inputEvent.Handled) break;
+                }
+            }
+        }
+
+        private static void BindContent()
+        {
+            ContentContext = new DrawingContext(new ConsoleManagerDrawingContextListener(), Content);
+        }
+
+        private static void UpdateMouseContext()
+        {
+            MouseContext = MousePosition.HasValue
+                ? _buffer.GetMouseContext(MousePosition.Value)
+                : null;
+        }
 
         public static double AverageDrawTime
         {
@@ -246,14 +309,13 @@ namespace ConsoleGUI
         }
 
         public static void StartDrawTimer() => drawTimer.Restart();
-                
-		public static void StopDrawTimer()
+
+        public static void StopDrawTimer()
         {
             drawTimer.Stop();
             drawTimes[drawTimeIndex] = drawTimer.ElapsedMilliseconds;
             drawTimeIndex = (drawTimeIndex + 1) % drawTimeSamples;
         }
-
         private static readonly int drawTimeSamples = 60;	
         private static readonly long[] drawTimes = new long[drawTimeSamples];
 		private static readonly Stopwatch drawTimer = new Stopwatch();		

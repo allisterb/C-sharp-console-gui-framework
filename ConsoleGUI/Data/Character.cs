@@ -10,12 +10,17 @@ namespace ConsoleGUI.Data
 
 		public readonly Color? Foreground;
 		public readonly Color? Background;
+		public readonly bool IsControl = false;
+		public readonly bool? Blink;
+		public readonly bool? Invert;
+		public readonly bool? Underline;
 
-		public Character(char? content, Color? foreground = null, Color? background = null)
+		public Character(char? content, Color? foreground = null, Color? background = null, bool? isControl = null)
 		{
 			Content = content;
 			Foreground = foreground;
 			Background = background;
+			IsControl = isControl ?? false;
 		}
 
 		public Character(in Color background)
@@ -47,10 +52,14 @@ namespace ConsoleGUI.Data
 
 		public override int GetHashCode()
 		{
-			var hashCode = -1661473088;
-			hashCode = hashCode * -1521134295 + EqualityComparer<char?>.Default.GetHashCode(Content);
-			hashCode = hashCode * -1521134295 + EqualityComparer<Color?>.Default.GetHashCode(Foreground);
-			hashCode = hashCode * -1521134295 + EqualityComparer<Color?>.Default.GetHashCode(Background);
+			var ch1 = Content is not null ? EqualityComparer<char?>.Default.GetHashCode(Content) : 0;
+            var ch2 = Foreground is not null ? EqualityComparer<Color?>.Default.GetHashCode(Foreground) : 0;
+            var ch3 = Background is not null ? EqualityComparer<Color?>.Default.GetHashCode(Background) : 0;
+            var ch4 = EqualityComparer<bool>.Default.GetHashCode(IsControl);
+            var ch5 = Blink is not null ? EqualityComparer<bool?>.Default.GetHashCode(Blink) : 0;
+            var ch6 = Invert is not null ? EqualityComparer<bool?>.Default.GetHashCode(Invert) : 0;
+            var ch7 = Underline is not null ? EqualityComparer<bool?>.Default.GetHashCode(Underline) : 0;           
+			var hashCode = -1521134295 * (-1661473088 + ch1 + ch2 + ch3 + ch4 + ch5 + ch6 + ch7);
 			return hashCode;
 		}
 	}

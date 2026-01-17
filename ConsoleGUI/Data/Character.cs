@@ -4,22 +4,92 @@ using System.Text;
 
 namespace ConsoleGUI.Data
 {
-	public readonly struct Character
+    /// <summary>
+    /// Represents text decoration.
+    /// </summary>
+    /// <remarks>
+    /// Support for text decorations is up to the terminal.
+    /// </remarks>
+    [Flags]
+    public enum Decoration
+    {
+        /// <summary>
+        /// No text decoration.
+        /// </summary>
+        None = 0,
+
+        /// <summary>
+        /// Bold text.
+        /// Not supported in every environment.
+        /// </summary>
+        Bold = 1 << 0,
+
+        /// <summary>
+        /// Dim or faint text.
+        /// Not supported in every environment.
+        /// </summary>
+        Dim = 1 << 1,
+
+        /// <summary>
+        /// Italic text.
+        /// Not supported in every environment.
+        /// </summary>
+        Italic = 1 << 2,
+
+        /// <summary>
+        /// Underlined text.
+        /// Not supported in every environment.
+        /// </summary>
+        Underline = 1 << 3,
+
+        /// <summary>
+        /// Swaps the foreground and background colors.
+        /// Not supported in every environment.
+        /// </summary>
+        Invert = 1 << 4,
+
+        /// <summary>
+        /// Hides the text.
+        /// Not supported in every environment.
+        /// </summary>
+        Conceal = 1 << 5,
+
+        /// <summary>
+        /// Makes text blink.
+        /// Normally less than 150 blinks per minute.
+        /// Not supported in every environment.
+        /// </summary>
+        SlowBlink = 1 << 6,
+
+        /// <summary>
+        /// Makes text blink.
+        /// Normally more than 150 blinks per minute.
+        /// Not supported in every environment.
+        /// </summary>
+        RapidBlink = 1 << 7,
+
+        /// <summary>
+        /// Shows text with a horizontal line through the center.
+        /// Not supported in every environment.
+        /// </summary>
+        Strikethrough = 1 << 8,
+    }
+
+    public readonly struct Character
 	{
 		public readonly char? Content;
 
 		public readonly Color? Foreground;
 		public readonly Color? Background;
+        public readonly Decoration? Decoration;
 		public readonly bool IsControl = false;
-		public readonly bool? Blink;
-		public readonly bool? Invert;
-		public readonly bool? Underline;
 
-		public Character(char? content, Color? foreground = null, Color? background = null, bool? isControl = null)
+		public Character(char? content, Color? foreground = null, Color? background = null, Decoration? decoration = null, bool? isControl = null)
 		{
 			Content = content;
 			Foreground = foreground;
 			Background = background;
+            Decoration = decoration;
 			IsControl = isControl ?? false;
 		}
 
@@ -40,7 +110,9 @@ namespace ConsoleGUI.Data
 		{
 			return lhs.Content == rhs.Content &&
 				   lhs.Foreground == rhs.Foreground &&
-				   lhs.Background == rhs.Background;
+				   lhs.Background == rhs.Background &&
+                   lhs.Decoration == rhs.Decoration &&
+                   lhs.IsControl == rhs.IsControl;
 		}
 
 		public static bool operator !=(in Character lhs, in Character rhs) => !(lhs == rhs);
@@ -56,10 +128,9 @@ namespace ConsoleGUI.Data
             var ch2 = Foreground is not null ? EqualityComparer<Color?>.Default.GetHashCode(Foreground) : 0;
             var ch3 = Background is not null ? EqualityComparer<Color?>.Default.GetHashCode(Background) : 0;
             var ch4 = EqualityComparer<bool>.Default.GetHashCode(IsControl);
-            var ch5 = Blink is not null ? EqualityComparer<bool?>.Default.GetHashCode(Blink) : 0;
-            var ch6 = Invert is not null ? EqualityComparer<bool?>.Default.GetHashCode(Invert) : 0;
-            var ch7 = Underline is not null ? EqualityComparer<bool?>.Default.GetHashCode(Underline) : 0;           
-			var hashCode = -1521134295 * (-1661473088 + ch1 + ch2 + ch3 + ch4 + ch5 + ch6 + ch7);
+            var ch5 = Decoration is not null ? EqualityComparer<Decoration?>.Default.GetHashCode(Decoration) : 0;
+                   
+			var hashCode = -1521134295 * (-1661473088 + ch1 + ch2 + ch3 + ch4 + ch5);
 			return hashCode;
 		}
 	}

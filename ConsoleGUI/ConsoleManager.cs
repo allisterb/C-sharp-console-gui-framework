@@ -142,9 +142,7 @@ namespace ConsoleGUI
 
 			Color? currentFg = null;
 			Color? currentBg = null;
-			bool? currentBlink = null;
-			bool? currentInvert = null;
-			bool? currentUnderline = null;
+			Decoration? currentDecoration = null;
 
 			int lastY = -1;
 			int lastX = -1;
@@ -165,7 +163,7 @@ namespace ConsoleGUI
 							acsb.MoveCursorTo(y, x);
 						}
 
-						WriteAnsiConsole(cell.Character, acsb, ref currentFg, ref currentBg, ref currentBlink, ref currentInvert, ref currentUnderline);
+						WriteAnsiConsole(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
 						
 						lastY = y;
 						lastX = x;
@@ -187,30 +185,23 @@ namespace ConsoleGUI
 			AnsiControlSequenceBuilder acsb,
 			ref Color? currentFg,
 			ref Color? currentBg,
-			ref bool? currentBlink,
-			ref bool? currentInvert,
-			ref bool? currentUnderline)
+			ref Decoration? currentDecoration)
 		{
-			bool decorationChanged = character.Blink != currentBlink || 
-									 character.Invert != currentInvert || 
-									 character.Underline != currentUnderline;
-
-			if (decorationChanged)
+			if (character.Decoration != currentDecoration)
 			{
+				var d = character.Decoration ?? Decoration.None;
 				acsb.SetDecorations(
-					blink: character.Blink ?? false,
-					invert: character.Invert ?? false,
-					underline: character.Underline ?? false);
+					intense: (d & Decoration.Bold) != 0,
+					faint: (d & Decoration.Dim) != 0,
+					italic: (d & Decoration.Italic) != 0,
+					underline: (d & Decoration.Underline) != 0,
+					invert: (d & Decoration.Invert) != 0,
+					invisible: (d & Decoration.Conceal) != 0,
+					blink: (d & Decoration.SlowBlink) != 0,
+					rapidBlink: (d & Decoration.RapidBlink) != 0,
+					strikethrough: (d & Decoration.Strikethrough) != 0);
 				
-				currentBlink = character.Blink;
-				currentInvert = character.Invert;
-				currentUnderline = character.Underline;
-				
-				// SetDecorations might reset colors in some terminals or builders if not careful, 
-				// but here we just ensure colors are set after if needed.
-				// In this builder, SetDecorations appends m codes. 
-				// If we changed decorations, we might need to re-apply colors if ResetAttributes was used internally, 
-				// but SetDecorations here doesn't seem to reset.
+				currentDecoration = character.Decoration;
 			}
 
 			if (character.Foreground != currentFg)

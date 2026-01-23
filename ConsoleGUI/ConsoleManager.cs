@@ -131,9 +131,7 @@ namespace ConsoleGUI
 		}
 
 		private static void Update(Rect rect)
-		{
-			StartDrawTimer();
-					
+		{								
             Console.OnRefresh();
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
 			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
@@ -171,7 +169,6 @@ namespace ConsoleGUI
             }
 			acsb.ResetAttributes();
 			Task.Run(acsb.WriteToSystemConsole);
-            StopDrawTimer();
         }
 
         public static void Setup()
@@ -251,6 +248,19 @@ namespace ConsoleGUI
         {
             if (WindowSize != BufferSize)
                 Resize(BufferSize);
+        }
+
+		public static void Draw()
+		{
+            StartDrawTimer();
+
+            // Resize and redraw UI on screen if console size changed
+            bool resized = AdjustBufferSize();
+
+            // Resizing will automatically redraw, so just redraw if resize not needed.
+            if (!resized) Redraw();
+
+			StopDrawTimer();	
         }
 
         public static void ReadInput(IReadOnlyCollection<IInputListener> controls)

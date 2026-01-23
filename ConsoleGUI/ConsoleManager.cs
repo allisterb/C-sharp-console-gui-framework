@@ -133,12 +133,11 @@ namespace ConsoleGUI
 		private static void Update(Rect rect)
 		{
 			StartDrawTimer();
-
-			var acsb = new AnsiControlSequenceBuilder();
-		
+					
             Console.OnRefresh();
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
 			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
+			acsb.Clear(rect.Height * rect.Width);
 
 			Color? currentFg = null;
 			Color? currentBg = null;
@@ -307,7 +306,9 @@ namespace ConsoleGUI
             drawTimes[drawTimeIndex] = drawTimer.ElapsedMilliseconds;
             drawTimeIndex = (drawTimeIndex + 1) % drawTimeSamples;
         }
-        private static readonly int drawTimeSamples = 60;	
+
+		private static readonly AnsiControlSequenceBuilder acsb = new();
+		private static readonly int drawTimeSamples = 60;	
         private static readonly long[] drawTimes = new long[drawTimeSamples];
 		private static readonly Stopwatch drawTimer = new Stopwatch();		
         private static int drawTimeIndex = 0;

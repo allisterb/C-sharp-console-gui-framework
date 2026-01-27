@@ -160,7 +160,7 @@ namespace ConsoleGUI
 							acsb.MoveCursorTo(y, x);
 						}
 
-						WriteAnsiConsole(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
+						WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
 						
 						lastY = y;
 						lastX = x;
@@ -176,7 +176,7 @@ namespace ConsoleGUI
             Resize(WindowSize);
         }
 
-        private static void WriteAnsiConsole(
+        private static void WriteCharacterAnsiSequence(
 			in Character character, 
 			AnsiControlSequenceBuilder acsb,
 			ref Color? currentFg,

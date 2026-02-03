@@ -134,9 +134,7 @@ namespace ConsoleGUI
 		{								
             Console.OnRefresh();
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
-			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
-			acsb.Clear(rect.Height * rect.Width);
-
+			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));			
 			Color? currentFg = null;
 			Color? currentBg = null;
 			Decoration? currentDecoration = null;
@@ -144,7 +142,9 @@ namespace ConsoleGUI
 			int lastY = -1;
 			int lastX = -1;
 
-			for (int y = rect.Top; y <= rect.Bottom; y++)
+            var acsb = new AnsiControlSequenceBuilder();
+
+            for (int y = rect.Top; y <= rect.Bottom; y++)
 			{
 				for (int x = rect.Left; x <= rect.Right; x++)
 				{
@@ -152,16 +152,15 @@ namespace ConsoleGUI
 
 					var cell = ContentContext[position];
 
-					if (!_buffer.Update(position, cell)) continue;					
+					if (!_buffer.Update(position, cell)) continue;	
+					
 					if (cell.Character.Content.HasValue)
 					{
 						if (y != lastY || x != lastX + 1)
 						{
 							acsb.MoveCursorTo(y, x);
 						}
-
-						WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
-						
+						WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);						
 						lastY = y;
 						lastX = x;
 					}
@@ -316,8 +315,7 @@ namespace ConsoleGUI
             drawTimes[drawTimeIndex] = drawTimer.ElapsedMilliseconds;
             drawTimeIndex = (drawTimeIndex + 1) % drawTimeSamples;
         }
-
-		private static readonly AnsiControlSequenceBuilder acsb = new();
+		
 		private static readonly int drawTimeSamples = 60;	
         private static readonly long[] drawTimes = new long[drawTimeSamples];
 		private static readonly Stopwatch drawTimer = new Stopwatch();		

@@ -104,7 +104,7 @@ namespace ConsoleGUI.Data
 		public Character WithForeground(in Color? foreground) => new Character(Content, foreground, Background);
 		public Character WithBackground(in Color? background) => new Character(Content, Foreground, background);
 
-		public static Character Empty => new Character();
+		public static Character Empty = new Character();
 
 		public static bool operator==(in Character lhs, in Character rhs)
 		{

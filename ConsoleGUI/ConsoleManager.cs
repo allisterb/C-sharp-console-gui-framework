@@ -36,6 +36,10 @@ namespace ConsoleGUI
 		private static readonly ConsoleBuffer _buffer = new ConsoleBuffer();
 		private static FreezeLock _freezeLock;
 
+		// Native terminal cursor state, driven by cells flagged with Character.IsCursor during Update.
+		private static Position? _cursorPosition;
+		private static bool _cursorVisible;
+
 		private static DrawingContext _contentContext = DrawingContext.Dummy;
 		private static DrawingContext ContentContext
 		{
@@ -117,6 +121,9 @@ namespace ConsoleGUI
 
 			Console.Initialize();
 			_buffer.Clear();
+			// Console.Initialize() hides the native cursor (and resize routes through here); forget our cached
+			// visibility so the next draw re-shows the cursor if one is present.
+			_cursorVisible = false;
 
 			_freezeLock.Freeze();
 			ContentContext.SetLimits(consoleSize, consoleSize);
@@ -144,6 +151,11 @@ namespace ConsoleGUI
 
             var acsb = new AnsiControlSequenceBuilder();
 
+            // Track the cell flagged as the cursor (Character.IsCursor). Checked before the diff skip so the
+            // cursor is found even on frames where its cell is otherwise unchanged.
+            Position? cursorAt = null;
+            bool wroteAnything = false;
+
             for (int y = rect.Top; y <= rect.Bottom; y++)
 			{
 				for (int x = rect.Left; x <= rect.Right; x++)
@@ -152,21 +164,50 @@ namespace ConsoleGUI
 
 					var cell = ContentContext[position];
 
-					if (!_buffer.Update(position, cell)) continue;	
-					
+					if (cell.Character.IsCursor) cursorAt = position;
+
+					if (!_buffer.Update(position, cell)) continue;
+
 					if (cell.Character.Content.HasValue)
 					{
 						if (y != lastY || x != lastX + 1)
 						{
 							acsb.MoveCursorTo(y, x);
 						}
-						WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);						
+						WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
 						lastY = y;
 						lastX = x;
+						wroteAnything = true;
 					}
                 }
             }
 			acsb.ResetAttributes();
+
+			// Position the terminal's native cursor. Only a full scan is authoritative about the cursor being
+			// gone; a partial update keeps the last known cursor so writes elsewhere don't drop it.
+			var bufferRect = Rect.OfSize(BufferSize);
+			bool fullUpdate = rect.Left <= bufferRect.Left && rect.Top <= bufferRect.Top
+				&& rect.Right >= bufferRect.Right && rect.Bottom >= bufferRect.Bottom;
+			Position? newCursorPosition = cursorAt.HasValue ? cursorAt : (fullUpdate ? null : _cursorPosition);
+
+			// Only touch the cursor when something actually changed; otherwise leave it alone so the terminal's
+			// native blink isn't reset every frame. A reposition is needed only when the cursor moved or our
+			// character writes this frame moved the real terminal cursor; visibility is emitted only on change.
+
+			if (newCursorPosition.HasValue)
+			{
+				if (newCursorPosition != _cursorPosition || wroteAnything)
+					acsb.MoveCursorTo(newCursorPosition.Value.Y, newCursorPosition.Value.X);
+				if (!_cursorVisible)
+					acsb.SetCursorVisibility(true);
+			}
+			else if (_cursorVisible)
+			{
+				acsb.SetCursorVisibility(false);
+			}
+			_cursorPosition = newCursorPosition;
+			_cursorVisible = newCursorPosition.HasValue;
+
 			Task.Run(acsb.WriteToSystemConsole);
         }
 

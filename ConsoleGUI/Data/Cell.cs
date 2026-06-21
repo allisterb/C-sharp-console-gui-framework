@@ -36,6 +36,7 @@ namespace ConsoleGUI.Data
 		public Cell WithContent(char? content) => new Cell(Character.WithContent(content), MouseListener);
 		public Cell WithForeground(in Color? foreground) => new Cell(Character.WithForeground(foreground), MouseListener);
 		public Cell WithBackground(in Color? background) => new Cell(Character.WithBackground(background), MouseListener);
+		public Cell WithIsCursor(bool isCursor) => new Cell(Character.WithIsCursor(isCursor), MouseListener);
 		public Cell WithMouseListener(IMouseListener mouseListener, in Position position) => new Cell(Character, new MouseContext(mouseListener, position));
 
 		public static implicit operator Cell(in Character character) => new Cell(character);

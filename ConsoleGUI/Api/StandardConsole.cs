@@ -34,7 +34,7 @@ namespace ConsoleGUI.Api
 
 		public virtual void OnRefresh()
 		{
-			SafeConsole.HideCursor();
+			
 		}
 
 		public virtual void Write(Position position, in Character character)

@@ -39,6 +39,8 @@ namespace ConsoleGUI
 		// Native terminal cursor state, driven by cells flagged with Character.IsCursor during Update.
 		private static Position? _cursorPosition;
 		private static bool _cursorVisible;
+		private static int _cursorStyle = -1;       // last emitted DECSCUSR style; -1 forces first emit
+		private static Color? _cursorColor;         // last emitted OSC 12 colour (null = terminal default)
 
 		private static DrawingContext _contentContext = DrawingContext.Dummy;
 		private static DrawingContext ContentContext
@@ -122,8 +124,9 @@ namespace ConsoleGUI
 			Console.Initialize();
 			_buffer.Clear();
 			// Console.Initialize() hides the native cursor (and resize routes through here); forget our cached
-			// visibility so the next draw re-shows the cursor if one is present.
+			// visibility/style so the next draw re-shows and re-applies the cursor if one is present.
 			_cursorVisible = false;
+			_cursorStyle = -1;
 
 			_freezeLock.Freeze();
 			ContentContext.SetLimits(consoleSize, consoleSize);
@@ -154,6 +157,7 @@ namespace ConsoleGUI
             // Track the cell flagged as the cursor (Character.IsCursor). Checked before the diff skip so the
             // cursor is found even on frames where its cell is otherwise unchanged.
             Position? cursorAt = null;
+            Character cursorChar = default;
             bool wroteAnything = false;
 
             for (int y = rect.Top; y <= rect.Bottom; y++)
@@ -164,7 +168,7 @@ namespace ConsoleGUI
 
 					var cell = ContentContext[position];
 
-					if (cell.Character.IsCursor) cursorAt = position;
+					if (cell.Character.IsCursor) { cursorAt = position; cursorChar = cell.Character; }
 
 					if (!_buffer.Update(position, cell)) continue;
 
@@ -196,6 +200,29 @@ namespace ConsoleGUI
 
 			if (newCursorPosition.HasValue)
 			{
+				// Style (DECSCUSR) and colour (OSC 12) ride the cursor cell's high decoration bits / Foreground;
+				// emit only on change so the native blink phase isn't reset every frame.
+				if (cursorAt.HasValue)
+				{
+					var deco = cursorChar.Decoration ?? Decoration.None;
+					int style = CursorEncoding.DecodeStyle(deco);
+					if (style != _cursorStyle)
+					{
+						acsb.SetCursorStyle((CursorStyle)style);
+						_cursorStyle = style;
+					}
+
+					Color? color = CursorEncoding.HasColor(deco) ? cursorChar.Foreground : null;
+					if (color != _cursorColor)
+					{
+						if (color.HasValue)
+							acsb.Print($"\x1b]12;#{color.Value.Red:X2}{color.Value.Green:X2}{color.Value.Blue:X2}\x1b\\");
+						else
+							acsb.Print("\x1b]112\x1b\\"); // reset cursor colour to terminal default
+						_cursorColor = color;
+					}
+				}
+
 				if (newCursorPosition != _cursorPosition || wroteAnything)
 					acsb.MoveCursorTo(newCursorPosition.Value.Y, newCursorPosition.Value.X);
 				if (!_cursorVisible)
@@ -223,9 +250,11 @@ namespace ConsoleGUI
 			ref Color? currentBg,
 			ref Decoration? currentDecoration)
 		{
-			if (character.Decoration != currentDecoration)
+			// Strip the cursor style/colour bits encoded into the high decoration bits so they never leak into SGR.
+			var decoration = CursorEncoding.StripCursorBits(character.Decoration ?? Decoration.None);
+			if (decoration != currentDecoration)
 			{
-				var d = character.Decoration ?? Decoration.None;
+				var d = decoration;
 				acsb.SetDecorations(
 					intense: (d & Decoration.Bold) != 0,
 					faint: (d & Decoration.Dim) != 0,
@@ -236,8 +265,8 @@ namespace ConsoleGUI
 					blink: (d & Decoration.SlowBlink) != 0,
 					rapidBlink: (d & Decoration.RapidBlink) != 0,
 					strikethrough: (d & Decoration.Strikethrough) != 0);
-				
-				currentDecoration = character.Decoration;
+
+				currentDecoration = decoration;
 			}
 
 			if (character.Foreground != currentFg)

@@ -75,6 +75,32 @@ namespace ConsoleGUI.Data
         Strikethrough = 1 << 8,
     }
 
+    /// <summary>
+    /// Encodes a terminal cursor's DECSCUSR style (0-6) and an "explicit cursor color present" flag into the
+    /// high bits of a <see cref="Decoration"/>, above the defined decoration flags. This lets a cursor cell
+    /// (Character.IsCursor) carry its style/colour through compositing to the renderer without extra fields.
+    /// The renderer decodes the style for DECSCUSR and strips these bits before emitting SGR decorations.
+    /// </summary>
+    public static class CursorEncoding
+    {
+        private const int StyleShift = 9;                 // first bit above Strikethrough (1 << 8)
+        private const int StyleMask = 0b111 << StyleShift; // 3 bits: style 0-7
+        private const int ColorFlag = 1 << 12;             // explicit cursor colour present
+
+        public static Decoration EncodeStyle(Decoration decoration, int styleValue)
+            => (Decoration)(((int)decoration & ~StyleMask) | ((styleValue & 0b111) << StyleShift));
+
+        public static int DecodeStyle(Decoration decoration) => ((int)decoration & StyleMask) >> StyleShift;
+
+        public static Decoration WithColorFlag(Decoration decoration, bool present)
+            => present ? (Decoration)((int)decoration | ColorFlag) : (Decoration)((int)decoration & ~ColorFlag);
+
+        public static bool HasColor(Decoration decoration) => ((int)decoration & ColorFlag) != 0;
+
+        public static Decoration StripCursorBits(Decoration decoration)
+            => (Decoration)((int)decoration & ~(StyleMask | ColorFlag));
+    }
+
     public readonly struct Character
 	{
 		public readonly char? Content;

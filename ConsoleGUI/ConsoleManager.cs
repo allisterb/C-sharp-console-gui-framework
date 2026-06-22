@@ -44,11 +44,23 @@ namespace ConsoleGUI
 		/// </summary>
 		public static bool AnsiEnabled = true;
 
+		/// <summary>
+		/// When <see langword="true"/>, a blinking cursor style is blinked by us (the cursor is shown steady and
+		/// toggled on/off at a fixed wall-clock rate) in both the ANSI and legacy render paths. This keeps the
+		/// blink constant even while other controls animate — animation forces per-frame cursor repositioning,
+		/// which resets a terminal's <em>native</em> blink phase. When <see langword="false"/> (default), a
+		/// blinking cursor style is left to the terminal's native blink (DECSCUSR on ANSI, the System.Console
+		/// hardware cursor on legacy): cheaper and friendlier to screen readers, but the blink becomes erratic
+		/// under continuous animation. Steady cursor styles are unaffected by this setting.
+		/// </summary>
+		public static bool EmulateBlinkingCursor = false;
+
 		// Native terminal cursor state, driven by cells flagged with Character.IsCursor during Update.
 		private static Position? _cursorPosition;
 		private static bool _cursorVisible;
 		private static int _cursorStyle = -1;       // last emitted DECSCUSR style; -1 forces first emit
 		private static Color? _cursorColor;         // last emitted OSC 12 colour (null = terminal default)
+		private static bool _cursorBlinking;        // current cursor's style blinks → we self-blink it (see below)
 
 		// Legacy (non-ANSI) software-cursor state: the cursor is drawn as a cell and blinked by us.
 		private const long BlinkHalfPeriodMs = 530;
@@ -218,11 +230,19 @@ namespace ConsoleGUI
 			if (newCursorPosition.HasValue)
 			{
 				// Style (DECSCUSR) and colour (OSC 12) ride the cursor cell's high decoration bits / Foreground;
-				// emit only on change so the native blink phase isn't reset every frame.
+				// emit only on change so we don't churn escape codes every frame.
 				if (cursorAt.HasValue)
 				{
 					var deco = cursorChar.Decoration ?? Decoration.None;
-					int style = CursorEncoding.DecodeStyle(deco);
+					int rawStyle = CursorEncoding.DecodeStyle(deco);
+					// With EmulateBlinkingCursor we blink the cursor ourselves (show/hide at a fixed wall-clock rate
+					// below) rather than relying on the terminal's native blink: any animating control forces a
+					// per-frame CUP to reposition the cursor (char writes move the real cursor), and most terminals
+					// reset their native blink phase on CUP — so a native blink stutters. Emitting the STEADY DECSCUSR
+					// variant keeps the cursor solid under those CUPs; our show/hide produces the constant-rate blink.
+					// When the flag is off, emit the real (blinking) style and let the terminal blink it natively.
+					_cursorBlinking = EmulateBlinkingCursor && IsBlinkingStyle(rawStyle);
+					int style = _cursorBlinking ? SteadyCursorStyle(rawStyle) : rawStyle;
 					if (style != _cursorStyle)
 					{
 						acsb.SetCursorStyle((CursorStyle)style);
@@ -240,28 +260,44 @@ namespace ConsoleGUI
 					}
 				}
 
-				if (newCursorPosition != _cursorPosition || wroteAnything)
-					acsb.MoveCursorTo(newCursorPosition.Value.Y, newCursorPosition.Value.X);
-				if (!_cursorVisible)
-					acsb.SetCursorVisibility(true);
+				// Blinking cursors are shown only during the "on" half of the wall-clock cycle; steady cursors always.
+				bool show = !_cursorBlinking || CursorBlinkOn();
+				if (show)
+				{
+					if (newCursorPosition != _cursorPosition || wroteAnything)
+						acsb.MoveCursorTo(newCursorPosition.Value.Y, newCursorPosition.Value.X);
+					if (!_cursorVisible)
+						acsb.SetCursorVisibility(true);
+				}
+				else if (_cursorVisible)
+				{
+					acsb.SetCursorVisibility(false);
+				}
+				_cursorPosition = newCursorPosition;
+				_cursorVisible = show;
 			}
-			else if (_cursorVisible)
+			else
 			{
-				acsb.SetCursorVisibility(false);
+				if (_cursorVisible)
+					acsb.SetCursorVisibility(false);
+				_cursorPosition = newCursorPosition;
+				_cursorVisible = false;
+				_cursorBlinking = false;
 			}
-			_cursorPosition = newCursorPosition;
-			_cursorVisible = newCursorPosition.HasValue;
 
 			Task.Run(acsb.WriteToSystemConsole);
         }
 
         // Legacy/non-ANSI rendering: write each changed cell through the IConsole (e.g. SimplifiedConsole's
-        // 16-colour System.Console output). The cursor is a *software* cursor — a specially-rendered cell — so
-        // the hardware cursor (which we can't move without it visibly jumping per cell, or blink consistently)
-        // stays hidden. Shape and blink follow the CursorStyle encoded on the cursor Character.
+        // 16-colour System.Console output). The cursor is normally a *software* cursor — a specially-rendered cell —
+        // so the hardware cursor (which we can't move without it visibly jumping per cell, or blink consistently)
+        // stays hidden; shape/blink follow the CursorStyle encoded on the cursor Character. Exception: when
+        // EmulateBlinkingCursor is off and the style is a blinking one, the System.Console hardware cursor is shown
+        // and left to blink natively (steady styles always stay software, since the hardware cursor can't be steady).
         private static void UpdateLegacy(Rect rect)
         {
-            // Keep the hardware cursor hidden; the software cursor is drawn as a cell.
+            // Hide the hardware cursor while drawing cells (so it doesn't visibly jump per write); it is re-shown
+            // below only for the native-blink case.
             if (_cursorVisible) { SafeConsole.HideCursor(); _cursorVisible = false; }
 
             Position? cursorAt = null;
@@ -293,19 +329,71 @@ namespace ConsoleGUI
                 int style = CursorEncoding.DecodeStyle(cursorChar.Decoration ?? Decoration.None);
                 _cursorPosition = cursorAt;
                 _legacyCursorChar = cursorChar;
-                _legacyCursorBlinking = style == 0 || (style % 2 == 1);
-                RenderLegacyCursorCell(!_legacyCursorBlinking || LegacyBlinkOn());
+
+                if (IsBlinkingStyle(style) && !EmulateBlinkingCursor)
+                {
+                    // Native blink: draw the plain underlying glyph (cursor decoration stripped) and let the
+                    // System.Console hardware cursor blink over it. RenderLegacyCursorCell leaves the hardware
+                    // cursor just past the glyph, so reposition it onto the cursor cell before showing.
+                    _legacyCursorBlinking = false; // not self-blinking — the terminal does it
+                    RenderLegacyCursorCell(on: false);
+                    SafeConsole.SetCursorPosition(cursorAt.Value.X, cursorAt.Value.Y);
+                    SafeConsole.ShowCursor();
+                    _cursorVisible = true;
+                }
+                else
+                {
+                    // Software cursor (drawn cell): steady styles render solid; blinking styles self-blink when
+                    // emulation is on (the only way a blinking style reaches here).
+                    _legacyCursorBlinking = IsBlinkingStyle(style);
+                    RenderLegacyCursorCell(!_legacyCursorBlinking || CursorBlinkOn());
+                }
             }
             else if (fullUpdate)
             {
-                // Cursor gone — the cell it was on was redrawn as a normal glyph by the loop above.
+                // Cursor gone — the cell it was on was redrawn as a normal glyph by the loop above. The hardware
+                // cursor (if it was shown for native blink) was already hidden at the top of this method.
                 _cursorPosition = null;
                 _legacyCursorBlinking = false;
             }
         }
 
         // ~1Hz blink derived from wall-clock time, so the rate is independent of how often frames are drawn.
-        private static bool LegacyBlinkOn() => (Environment.TickCount64 / BlinkHalfPeriodMs) % 2 == 0;
+        // Shared by the legacy software cursor and the ANSI self-blink.
+        private static bool CursorBlinkOn() => (Environment.TickCount64 / BlinkHalfPeriodMs) % 2 == 0;
+
+        // DECSCUSR styles 0/1/3/5 blink (0 = terminal default = blinking block); 2/4/6 are steady.
+        private static bool IsBlinkingStyle(int style) => style == 0 || (style % 2 == 1);
+
+        // The steady DECSCUSR variant of a (possibly blinking) style: 0/1 -> 2 (block), 3 -> 4 (underline), 5 -> 6 (bar).
+        private static int SteadyCursorStyle(int style) => style == 0 ? 2 : (style % 2 == 1 ? style + 1 : style);
+
+        // Cheap blink tick for the ANSI self-blinking cursor: when the wall-clock phase flips, emit ONLY the cursor
+        // visibility toggle (DECTCEM, plus a reposition when showing) — no full-screen scan. Called on idle frames so
+        // a blinking cursor keeps ticking with no input/animation, costing a few bytes twice a second instead of a
+        // whole-buffer redraw. On animating frames the cursor is handled inline by Update (it rides the redraw that
+        // is happening anyway), so this must run ONLY when Update did not (idle frames) to avoid a double-emit.
+        public static void TickCursorBlink()
+        {
+            if (!AnsiEnabled || !_cursorBlinking || !_cursorPosition.HasValue) return;
+            bool show = CursorBlinkOn();
+            if (show == _cursorVisible) return;
+
+            var acsb = new AnsiControlSequenceBuilder();
+            if (show)
+            {
+                // Nothing else wrote since the last toggle on an idle frame, so the real cursor is still here; the
+                // reposition is belt-and-braces and, on a steady cursor, does not disturb our software blink.
+                acsb.MoveCursorTo(_cursorPosition.Value.Y, _cursorPosition.Value.X);
+                acsb.SetCursorVisibility(true);
+            }
+            else
+            {
+                acsb.SetCursorVisibility(false);
+            }
+            _cursorVisible = show;
+            Task.Run(acsb.WriteToSystemConsole);
+        }
 
         // Renders the software cursor cell: when "on", tailored to its CursorStyle (block = inverted cell,
         // underline = '_', bar = '|'); when "off" (blink phase), the plain glyph.
@@ -334,7 +422,7 @@ namespace ConsoleGUI
         private static void TickLegacyCursorBlink()
         {
             if (AnsiEnabled || !_legacyCursorBlinking || !_cursorPosition.HasValue) return;
-            bool on = LegacyBlinkOn();
+            bool on = CursorBlinkOn();
             if (on != _legacyCursorShown) RenderLegacyCursorCell(on);
         }
 

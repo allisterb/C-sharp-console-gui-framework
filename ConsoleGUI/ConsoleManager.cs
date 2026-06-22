@@ -36,11 +36,25 @@ namespace ConsoleGUI
 		private static readonly ConsoleBuffer _buffer = new ConsoleBuffer();
 		private static FreezeLock _freezeLock;
 
+		/// <summary>
+		/// When <see langword="true"/> (default), cells are rendered with ANSI escape sequences (truecolor SGR,
+		/// cursor positioning, DECSCUSR cursor). When <see langword="false"/>, rendering falls back to the
+		/// <see cref="IConsole.Write(Position, in Character)"/> path (e.g. <see cref="Api.SimplifiedConsole"/>'s
+		/// 16-colour System.Console output) for legacy terminals that don't interpret ANSI.
+		/// </summary>
+		public static bool AnsiEnabled = true;
+
 		// Native terminal cursor state, driven by cells flagged with Character.IsCursor during Update.
 		private static Position? _cursorPosition;
 		private static bool _cursorVisible;
 		private static int _cursorStyle = -1;       // last emitted DECSCUSR style; -1 forces first emit
 		private static Color? _cursorColor;         // last emitted OSC 12 colour (null = terminal default)
+
+		// Legacy (non-ANSI) software-cursor state: the cursor is drawn as a cell and blinked by us.
+		private const long BlinkHalfPeriodMs = 530;
+		private static Character _legacyCursorChar;  // source cursor cell (glyph + encoded style)
+		private static bool _legacyCursorBlinking;   // the current cursor's style blinks
+		private static bool _legacyCursorShown;      // current blink phase as last rendered
 
 		private static DrawingContext _contentContext = DrawingContext.Dummy;
 		private static DrawingContext ContentContext
@@ -141,10 +155,13 @@ namespace ConsoleGUI
 		}
 
 		private static void Update(Rect rect)
-		{								
+		{
             Console.OnRefresh();
 			rect = Rect.Intersect(rect, Rect.OfSize(BufferSize));
-			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));			
+			rect = Rect.Intersect(rect, Rect.OfSize(WindowSize));
+
+			if (!AnsiEnabled) { UpdateLegacy(rect); return; }
+
 			Color? currentFg = null;
 			Color? currentBg = null;
 			Decoration? currentDecoration = null;
@@ -238,6 +255,89 @@ namespace ConsoleGUI
 			Task.Run(acsb.WriteToSystemConsole);
         }
 
+        // Legacy/non-ANSI rendering: write each changed cell through the IConsole (e.g. SimplifiedConsole's
+        // 16-colour System.Console output). The cursor is a *software* cursor — a specially-rendered cell — so
+        // the hardware cursor (which we can't move without it visibly jumping per cell, or blink consistently)
+        // stays hidden. Shape and blink follow the CursorStyle encoded on the cursor Character.
+        private static void UpdateLegacy(Rect rect)
+        {
+            // Keep the hardware cursor hidden; the software cursor is drawn as a cell.
+            if (_cursorVisible) { SafeConsole.HideCursor(); _cursorVisible = false; }
+
+            Position? cursorAt = null;
+            Character cursorChar = default;
+
+            for (int y = rect.Top; y <= rect.Bottom; y++)
+            {
+                for (int x = rect.Left; x <= rect.Right; x++)
+                {
+                    var position = new Position(x, y);
+                    var cell = ContentContext[position];
+
+                    if (cell.Character.IsCursor) { cursorAt = position; cursorChar = cell.Character; }
+
+                    if (!_buffer.Update(position, cell)) continue;
+                    if (cell.Character.IsCursor) continue;   // drawn as the software cursor below, not as a raw glyph
+                    if (cell.Character.Content.HasValue) Console.Write(position, cell.Character);
+                }
+            }
+
+            // Only a full scan is authoritative about the cursor being gone; a partial update that doesn't
+            // include the cursor cell leaves the software cursor untouched.
+            var bufferRect = Rect.OfSize(BufferSize);
+            bool fullUpdate = rect.Left <= bufferRect.Left && rect.Top <= bufferRect.Top
+                && rect.Right >= bufferRect.Right && rect.Bottom >= bufferRect.Bottom;
+
+            if (cursorAt.HasValue)
+            {
+                int style = CursorEncoding.DecodeStyle(cursorChar.Decoration ?? Decoration.None);
+                _cursorPosition = cursorAt;
+                _legacyCursorChar = cursorChar;
+                _legacyCursorBlinking = style == 0 || (style % 2 == 1);
+                RenderLegacyCursorCell(!_legacyCursorBlinking || LegacyBlinkOn());
+            }
+            else if (fullUpdate)
+            {
+                // Cursor gone — the cell it was on was redrawn as a normal glyph by the loop above.
+                _cursorPosition = null;
+                _legacyCursorBlinking = false;
+            }
+        }
+
+        // ~1Hz blink derived from wall-clock time, so the rate is independent of how often frames are drawn.
+        private static bool LegacyBlinkOn() => (Environment.TickCount64 / BlinkHalfPeriodMs) % 2 == 0;
+
+        // Renders the software cursor cell: when "on", tailored to its CursorStyle (block = inverted cell,
+        // underline = '_', bar = '|'); when "off" (blink phase), the plain glyph.
+        private static void RenderLegacyCursorCell(bool on)
+        {
+            if (!_cursorPosition.HasValue) return;
+            int style = CursorEncoding.DecodeStyle(_legacyCursorChar.Decoration ?? Decoration.None);
+            var c = _legacyCursorChar;
+            var content = c.Content ?? ' ';
+            // Resolve to concrete colours: a block cursor inverts fg/bg, and on an empty/default cell both are
+            // null. Inverting null<->null renders a plain space (invisible). Default to white-on-black so the
+            // block flips to a visible cell.
+            var fg = c.Foreground ?? Color.White;
+            var bg = c.Background ?? Color.Black;
+            Character display = !on
+                ? new Character(content, c.Foreground, c.Background, CursorEncoding.StripCursorBits(c.Decoration ?? Decoration.None))
+                : style <= 2 ? new Character(content, bg, fg)   // block: invert fg/bg
+                : style <= 4 ? new Character('_', fg, bg)        // underline
+                             : new Character('|', fg, bg);       // bar
+            Console.Write(_cursorPosition.Value, display);
+            _legacyCursorShown = on;
+        }
+
+        // Called once per frame (via AdjustBufferSize) on the UI thread; flips a blinking software cursor at the
+        // wall-clock rate even on idle frames, with no extra timer/thread and without touching the UI frame loop.
+        private static void TickLegacyCursorBlink()
+        {
+            if (AnsiEnabled || !_legacyCursorBlinking || !_cursorPosition.HasValue) return;
+            bool on = LegacyBlinkOn();
+            if (on != _legacyCursorShown) RenderLegacyCursorCell(on);
+        }
+
         public static void Setup()
         {
             Resize(WindowSize);
@@ -307,10 +407,11 @@ namespace ConsoleGUI
                 Resize(WindowSize);
                 return true;
             }
-            else
-            {
-                return false;
-            }
+
+            // Runs every frame on the UI thread (this is called by both Draw and the idle path), so the legacy
+            // software cursor blinks at a steady rate without a separate timer or any change to the frame loop.
+            TickLegacyCursorBlink();
+            return false;
         }
 
         public static void AdjustWindowSize()

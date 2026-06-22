@@ -95,6 +95,16 @@ namespace ConsoleGUI.Utils
 			{ }
 		}
 
+		public static void ShowCursor()
+		{
+			try
+			{
+				Console.CursorVisible = true;
+			}
+			catch (Exception)
+			{ }
+		}
+
 		public static void Clear()
 		{
 			try

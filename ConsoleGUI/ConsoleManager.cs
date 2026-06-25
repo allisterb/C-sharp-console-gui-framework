@@ -212,17 +212,20 @@ namespace ConsoleGUI
 
 					if (!_buffer.Update(position, cell)) continue;
 
-					if (cell.Character.Content.HasValue)
+					// Write the glyph, or a blank to erase a cell whose content was just cleared (e.g. a closed
+					// popup). Without the blank the stale glyph persists until a full re-init (resize/clear).
+					var character = cell.Character.Content.HasValue
+						? cell.Character
+						: new Character(' ', cell.Character.Foreground, cell.Character.Background, cell.Character.Decoration);
+
+					if (y != lastY || x != lastX + 1)
 					{
-						if (y != lastY || x != lastX + 1)
-						{
-							acsb.MoveCursorTo(y, x);
-						}
-						WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
-						lastY = y;
-						lastX = x;
-						wroteAnything = true;
+						acsb.MoveCursorTo(y, x);
 					}
+					WriteCharacterAnsiSequence(character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
+					lastY = y;
+					lastX = x;
+					wroteAnything = true;
                 }
             }
 			acsb.ResetAttributes();
@@ -325,7 +328,11 @@ namespace ConsoleGUI
 
                     if (!_buffer.Update(position, cell)) continue;
                     if (cell.Character.IsCursor) continue;   // drawn as the software cursor below, not as a raw glyph
-                    if (cell.Character.Content.HasValue) Console.Write(position, cell.Character);
+                    // Write the glyph, or a blank to erase a cell whose content was just cleared (e.g. a closed
+                    // popup); otherwise the stale glyph persists until a full re-init (resize/clear).
+                    Console.Write(position, cell.Character.Content.HasValue
+                        ? cell.Character
+                        : new Character(' ', cell.Character.Foreground, cell.Character.Background, cell.Character.Decoration));
                 }
             }
 

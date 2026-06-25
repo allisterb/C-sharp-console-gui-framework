@@ -119,6 +119,17 @@ namespace ConsoleGUI
 			}
 		}
 
+		/// <summary>
+		/// Dispatches a wheel rotation to the listener under the current <see cref="MousePosition"/>, if it opts in
+		/// via <see cref="IMouseWheelListener"/>. Set <see cref="MousePosition"/> first so the wheel targets the cell
+		/// the pointer is over. <paramref name="delta"/> is a signed notch count (negative up, positive down).
+		/// </summary>
+		public static void MouseWheel(int delta)
+		{
+			if (MouseContext is MouseContext context && context.MouseListener is IMouseWheelListener wheelListener)
+				wheelListener.OnMouseWheel(context.RelativePosition, delta);
+		}
+
 		private static MouseContext? _mouseContext;
 		private static MouseContext? MouseContext
 		{

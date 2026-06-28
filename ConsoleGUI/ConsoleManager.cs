@@ -45,6 +45,35 @@ namespace ConsoleGUI
 		public static bool AnsiEnabled = true;
 
 		/// <summary>
+		/// Sink for a built ANSI frame. The default writes it to the system console on a thread-pool thread (so the
+		/// blocking console write never stalls the UI thread). Tests swap this to capture the bytes instead. All
+		/// frames are serialized through <see cref="Emit"/> regardless of sink, so output can never reorder; await
+		/// <see cref="OutputIdle"/> to wait for everything queued so far to finish writing.
+		/// </summary>
+		public static Func<AnsiControlSequenceBuilder, Task> AnsiOutput = static acsb => Task.Run(acsb.WriteToSystemConsole);
+
+		private static readonly object _outputLock = new object();
+		private static Task _outputTail = Task.CompletedTask;
+
+		/// <summary>A task that completes once every ANSI frame queued so far has been written. For deterministic tests.</summary>
+		public static Task OutputIdle { get { lock (_outputLock) return _outputTail; } }
+
+		// Serialize frame writes: each frame waits for the previous one before invoking the sink, so frames can never
+		// be written out of order even though the write itself runs off the UI thread (the old fire-and-forget
+		// Task.Run could reorder). A prior frame's failure is swallowed so one bad write can't stall the chain.
+		private static void Emit(AnsiControlSequenceBuilder acsb)
+		{
+			lock (_outputLock)
+				_outputTail = WriteAfter(_outputTail, acsb);
+
+			static async Task WriteAfter(Task previous, AnsiControlSequenceBuilder builder)
+			{
+				try { await previous.ConfigureAwait(false); } catch { }
+				await AnsiOutput(builder).ConfigureAwait(false);
+			}
+		}
+
+		/// <summary>
 		/// When <see langword="true"/>, a blinking cursor style is blinked by us (the cursor is shown steady and
 		/// toggled on/off at a fixed wall-clock rate) in both the ANSI and legacy render paths. This keeps the
 		/// blink constant even while other controls animate — animation forces per-frame cursor repositioning,
@@ -299,7 +328,7 @@ namespace ConsoleGUI
 				_cursorBlinking = false;
 			}
 
-			Task.Run(acsb.WriteToSystemConsole);
+			Emit(acsb);
         }
 
         // Legacy/non-ANSI rendering: write each changed cell through the IConsole (e.g. SimplifiedConsole's
@@ -410,7 +439,7 @@ namespace ConsoleGUI
                 acsb.SetCursorVisibility(false);
             }
             _cursorVisible = show;
-            Task.Run(acsb.WriteToSystemConsole);
+            Emit(acsb);
         }
 
         // Renders the software cursor cell: when "on", tailored to its CursorStyle (block = inverted cell,

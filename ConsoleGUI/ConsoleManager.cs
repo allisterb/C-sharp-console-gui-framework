@@ -489,17 +489,27 @@ namespace ConsoleGUI
 			var decoration = CursorEncoding.StripCursorBits(character.Decoration ?? Decoration.None);
 			if (decoration != currentDecoration)
 			{
+				// SGR attributes accumulate in the terminal and SetDecorations only turns codes ON, never off — and
+				// its empty (None) form emits ESC[m, which also resets the foreground/background. So reset everything
+				// and re-establish the decoration (and, below, the colours) from scratch. This is the only generally
+				// correct decoration transition: otherwise a shrinking decoration lingers (Bold→Italic ⇒ Bold+Italic)
+				// and the implicit reset silently clears colours we still believe are set.
+				acsb.ResetAttributes();
+				currentFg = null;
+				currentBg = null;
+
 				var d = decoration;
-				acsb.SetDecorations(
-					intense: (d & Decoration.Bold) != 0,
-					faint: (d & Decoration.Dim) != 0,
-					italic: (d & Decoration.Italic) != 0,
-					underline: (d & Decoration.Underline) != 0,
-					invert: (d & Decoration.Invert) != 0,
-					invisible: (d & Decoration.Conceal) != 0,
-					blink: (d & Decoration.SlowBlink) != 0,
-					rapidBlink: (d & Decoration.RapidBlink) != 0,
-					strikethrough: (d & Decoration.Strikethrough) != 0);
+				if (d != Decoration.None)
+					acsb.SetDecorations(
+						intense: (d & Decoration.Bold) != 0,
+						faint: (d & Decoration.Dim) != 0,
+						italic: (d & Decoration.Italic) != 0,
+						underline: (d & Decoration.Underline) != 0,
+						invert: (d & Decoration.Invert) != 0,
+						invisible: (d & Decoration.Conceal) != 0,
+						blink: (d & Decoration.SlowBlink) != 0,
+						rapidBlink: (d & Decoration.RapidBlink) != 0,
+						strikethrough: (d & Decoration.Strikethrough) != 0);
 
 				currentDecoration = decoration;
 			}

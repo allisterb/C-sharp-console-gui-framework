@@ -86,6 +86,11 @@ namespace ConsoleGUI
 
 		// Native terminal cursor state, driven by cells flagged with Character.IsCursor during Update.
 		private static Position? _cursorPosition;
+
+		/// <summary>The focused control's caret (the cell flagged <see cref="Character.IsCursor"/>) in absolute
+		/// screen coordinates, or <see langword="null"/> when no cursor is shown. Lets a control anchor a popup
+		/// (e.g. an autocomplete list) just below the caret without knowing its own screen position.</summary>
+		public static Position? CursorPosition => _cursorPosition;
 		private static bool _cursorVisible;
 		private static int _cursorStyle = -1;       // last emitted DECSCUSR style; -1 forces first emit
 		private static Color? _cursorColor;         // last emitted OSC 12 colour (null = terminal default)

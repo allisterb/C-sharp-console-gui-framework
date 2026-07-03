@@ -144,6 +144,17 @@ namespace ConsoleGUI
 			get => _mouseDown;
 			set
 			{
+				// While a listener holds the mouse capture, press/release go to it (in its own frame), not to whatever
+				// cell the pointer happens to be over — so a drag started on it keeps receiving events off-control.
+				if (_mouseCapture != null)
+				{
+					var p = CapturedPosition();
+					if (_mouseDown && !value) _mouseCapture.OnMouseUp(p);
+					if (!_mouseDown && value) _mouseCapture.OnMouseDown(p);
+					_mouseDown = value;
+					return;
+				}
+
 				if (_mouseDown && !value)
 					MouseContext?.MouseListener?.OnMouseUp(MouseContext.Value.RelativePosition);
 				if (!_mouseDown && value)
@@ -152,6 +163,33 @@ namespace ConsoleGUI
 				_mouseDown = value;
 			}
 		}
+
+		private static IMouseListener _mouseCapture;
+		private static Position _captureOrigin;
+
+		/// <summary>The listener currently capturing the mouse, or <c>null</c>. See <see cref="CaptureMouse"/>.</summary>
+		public static IMouseListener MouseCapture => _mouseCapture;
+
+		/// <summary>
+		/// Routes all subsequent mouse move/press/release to <paramref name="listener"/> until
+		/// <see cref="ReleaseMouseCapture"/>, regardless of which cell the pointer is over, and suppresses
+		/// enter/leave to other controls. Positions are reported in the captured control's own frame (its origin is
+		/// latched now, from the pointer — which is over the control at capture time). Used for drags (splitters,
+		/// scrollbar thumbs, sliders). Call from a mouse-down handler.
+		/// </summary>
+		public static void CaptureMouse(IMouseListener listener)
+		{
+			_mouseCapture = listener;
+			var rel = _mouseContext?.RelativePosition ?? new Position(0, 0);
+			var abs = _mousePosition ?? new Position(0, 0);
+			_captureOrigin = abs.Move(-rel.X, -rel.Y);
+		}
+
+		/// <summary>Releases a capture taken by <see cref="CaptureMouse"/>. Call from the mouse-up handler.</summary>
+		public static void ReleaseMouseCapture() => _mouseCapture = null;
+
+		private static Position CapturedPosition()
+			=> (_mousePosition ?? new Position(0, 0)).Move(-_captureOrigin.X, -_captureOrigin.Y);
 
 		/// <summary>
 		/// Dispatches a wheel rotation to the listener under the current <see cref="MousePosition"/>, if it opts in
@@ -605,6 +643,14 @@ namespace ConsoleGUI
 
         private static void UpdateMouseContext()
         {
+            // While captured, movement goes straight to the capturing listener (in its own frame); no hit-test, and
+            // no enter/leave for the controls the pointer passes over.
+            if (_mouseCapture != null)
+            {
+                if (_mousePosition.HasValue) _mouseCapture.OnMouseMove(CapturedPosition());
+                return;
+            }
+
             MouseContext = MousePosition.HasValue
                 ? _buffer.GetMouseContext(MousePosition.Value)
                 : null;

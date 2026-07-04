@@ -660,7 +660,7 @@ namespace ConsoleGUI
         {
             get
             {
-                long total = 0;
+                double total = 0;
                 int count = 0;
                 foreach (var time in drawTimes)
                 {
@@ -670,7 +670,7 @@ namespace ConsoleGUI
                         count++;
                     }
                 }
-                return count > 0 ? (double)total / count : 0;
+                return count > 0 ? total / count : 0;
             }
         }
 
@@ -679,12 +679,14 @@ namespace ConsoleGUI
         public static void StopDrawTimer()
         {
             drawTimer.Stop();
-            drawTimes[drawTimeIndex] = drawTimer.ElapsedMilliseconds;
+            // Fractional milliseconds (not whole ms): the retained/dirty-rect renderer paints sub-millisecond
+            // frames, which ElapsedMilliseconds would truncate to 0 — losing the very numbers a perf HUD wants.
+            drawTimes[drawTimeIndex] = drawTimer.Elapsed.TotalMilliseconds;
             drawTimeIndex = (drawTimeIndex + 1) % drawTimeSamples;
         }
-		
-		private static readonly int drawTimeSamples = 60;	
-        private static readonly long[] drawTimes = new long[drawTimeSamples];
+
+		private static readonly int drawTimeSamples = 60;
+        private static readonly double[] drawTimes = new double[drawTimeSamples];
 		private static readonly Stopwatch drawTimer = new Stopwatch();		
         private static int drawTimeIndex = 0;
     }

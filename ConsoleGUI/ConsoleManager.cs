@@ -273,9 +273,9 @@ namespace ConsoleGUI
 		/// of the screen re-drawn" the perf HUD reports.</summary>
 		public static long LastFrameDirtyCells => _lastDirtyCells;
 
-		/// <summary>Marks the whole surface dirty so the next <see cref="FlushDirty"/> re-composites everything.
-		/// Used for changes that can't be localized to a rect (startup, resize, and the UI loop's safety-net
-		/// fallback when a redraw was requested but no control reported a damaged region).</summary>
+		/// <summary>Marks the whole surface dirty so the next <see cref="FlushDirty"/> re-composites everything. Used
+		/// for changes that can't be localized to a rect: startup/resize/console-swap (via Initialize), a whole-tree
+		/// OnRedraw, and the UI loop's fallback for a pre-paint redraw request that produced no localized damage.</summary>
 		public static void MarkFullDirty() => _fullDirty = true;
 
 		private static void AddDirtyRect(in Rect rect)

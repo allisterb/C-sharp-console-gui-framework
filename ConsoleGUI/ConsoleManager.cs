@@ -23,13 +23,17 @@ namespace ConsoleGUI
 			void IDrawingContextListener.OnRedraw(DrawingContext drawingContext)
 			{
 				if (_freezeLock.IsFrozen) return;
-				Redraw();
+				// Accumulate rather than emit inline: the frame loop flushes the dirty region once per frame
+				// (see FlushDirty). A whole-tree redraw request escalates to a full-screen flush.
+				MarkFullDirty();
 			}
 
 			void IDrawingContextListener.OnUpdate(DrawingContext drawingContext, Rect rect)
 			{
 				if (_freezeLock.IsFrozen) return;
-				Update(rect);
+				// The rect arrives already translated to screen coordinates by the DrawingContext.Update chain
+				// (each level applied its Offset on the way up). Record it; FlushDirty composites only these regions.
+				AddDirtyRect(rect);
 			}
 		}
 
@@ -241,11 +245,81 @@ namespace ConsoleGUI
 			ContentContext.SetLimits(consoleSize, consoleSize);
 			_freezeLock.Unfreeze();
 
-			Redraw();
+			// A re-initialize (startup / resize / console swap) invalidates the whole surface; mark it and let the
+			// frame loop flush it, so the emit runs after controls have repainted rather than over stale buffers.
+			MarkFullDirty();
+		}
+
+		// ---- Dirty-region tracking -------------------------------------------------------------------------------
+		// The renderer is "pull": a control reports damage in its own local space and the DrawingContext chain
+		// translates it to screen coordinates on the way up (DrawingContext.Update -> rect.Move(Offset)). Those
+		// screen rects accumulate here and are composited once per frame by FlushDirty, so a small change (e.g. a
+		// status-bar tick) re-scans only its own rows instead of the whole screen. The per-cell diff in Update is
+		// still the correctness backstop: an over-large or overlapping dirty rect only wastes scan time, it can
+		// never emit a wrong cell — so callers may be conservative (mark a bit too much) safely.
+		private static bool _fullDirty;
+		private static readonly List<Rect> _dirtyRects = new();
+		private static long _lastDirtyCells;
+		// Above this many distinct dirty regions in a frame, collapse to a single full redraw — cheaper than
+		// scanning/emitting dozens of small rects, and a guard against pathological accumulation.
+		private const int MaxDirtyRects = 32;
+
+		/// <summary><see langword="true"/> when there is pending damage to composite (a full redraw or one or more
+		/// dirty rects). The frame loop calls <see cref="FlushDirty"/> when this is set.</summary>
+		public static bool HasDirty => _fullDirty || _dirtyRects.Count > 0;
+
+		/// <summary>The number of cells the last <see cref="FlushDirty"/> re-composited — the whole buffer on a full
+		/// redraw, or the summed dirty-rect area on a partial one. Divided by the buffer area, this is the "fraction
+		/// of the screen re-drawn" the perf HUD reports.</summary>
+		public static long LastFrameDirtyCells => _lastDirtyCells;
+
+		/// <summary>Marks the whole surface dirty so the next <see cref="FlushDirty"/> re-composites everything.
+		/// Used for changes that can't be localized to a rect (startup, resize, and the UI loop's safety-net
+		/// fallback when a redraw was requested but no control reported a damaged region).</summary>
+		public static void MarkFullDirty() => _fullDirty = true;
+
+		private static void AddDirtyRect(in Rect rect)
+		{
+			if (_fullDirty) return;                       // already redrawing everything this frame
+			if (rect.Width <= 0 || rect.Height <= 0) return;
+			if (_dirtyRects.Count >= MaxDirtyRects) { _dirtyRects.Clear(); _fullDirty = true; return; }
+			_dirtyRects.Add(rect);
+		}
+
+		/// <summary>Composites the accumulated damage: a single full-screen pass when <see cref="_fullDirty"/>,
+		/// otherwise one <see cref="Update"/> per dirty rect (each clipped to the buffer). Clears the dirty state and
+		/// records <see cref="LastFrameDirtyCells"/>. Called once per frame by the UI loop (via <see cref="Draw"/>).</summary>
+		public static void FlushDirty()
+		{
+			if (_fullDirty)
+			{
+				var size = BufferSize;
+				_lastDirtyCells = (long)size.Width * size.Height;
+				Redraw();                                 // clears the dirty state and emits the whole screen
+				return;
+			}
+
+			if (_dirtyRects.Count == 0) { _lastDirtyCells = 0; return; }
+
+			var bufferRect = Rect.OfSize(BufferSize);
+			long cells = 0;
+			foreach (var r in _dirtyRects)
+			{
+				var clipped = Rect.Intersect(r, bufferRect);
+				if (clipped.Width <= 0 || clipped.Height <= 0) continue;
+				Update(clipped);
+				cells += (long)clipped.Width * clipped.Height;
+			}
+			_dirtyRects.Clear();
+			_lastDirtyCells = cells;
 		}
 
 		public static void Redraw()
 		{
+			// A full redraw satisfies any pending partial damage, so drop it (avoids a redundant partial flush right
+			// after). Emits the whole content rect through the per-cell diff.
+			_fullDirty = false;
+			_dirtyRects.Clear();
 			Update(ContentContext.Size.AsRect());
 		}
 
@@ -608,17 +682,18 @@ namespace ConsoleGUI
                 Resize(BufferSize);
         }
 
+		// Composites the accumulated damage. The caller must have already (1) handled any resize via
+		// AdjustBufferSize and (2) painted the controls into their buffers this frame, so the flush reads fresh
+		// content — see UI.OnFrame. (AnsiConsoleSession does the same: PaintFrame, then Draw.)
 		public static void Draw()
 		{
             StartDrawTimer();
 
-            // Resize and redraw UI on screen if console size changed
-            bool resized = AdjustBufferSize();
+            // Composite only the damaged region(s) accumulated since the last frame — the whole screen on a
+            // full-dirty (resize/redraw), otherwise just the dirty rects reported by controls that repainted.
+            FlushDirty();
 
-            // Resizing will automatically redraw, so just redraw if resize not needed.
-            if (!resized) Redraw();
-
-			StopDrawTimer();	
+			StopDrawTimer();
         }
 
         public static void ReadInput(IReadOnlyCollection<IInputListener> controls)

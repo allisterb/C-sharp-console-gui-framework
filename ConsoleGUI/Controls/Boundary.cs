@@ -68,11 +68,13 @@ namespace ConsoleGUI.Controls
 		{
 			set
 			{
-				using (Freeze())
-				{
-					MinWidth = value;
-					MaxWidth = value;
-				}
+				// Set both bounds then re-initialize ONCE. Going through the MinWidth/MaxWidth properties would run
+				// the Initialize cascade (SetLimits -> the whole content subtree re-lays-out) twice per assignment —
+				// the dominant cost when dragging a SplitPanel divider, which reassigns this every mouse-move.
+				if (_minWidth == value && _maxWidth == value) return;
+				_minWidth = value;
+				_maxWidth = value;
+				Initialize();
 			}
 		}
 
@@ -80,11 +82,10 @@ namespace ConsoleGUI.Controls
 		{
 			set
 			{
-				using (Freeze())
-				{
-					MinHeight = value;
-					MaxHeight = value;
-				}
+				if (_minHeight == value && _maxHeight == value) return;
+				_minHeight = value;
+				_maxHeight = value;
+				Initialize();
 			}
 		}
 

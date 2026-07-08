@@ -269,8 +269,10 @@ namespace ConsoleGUI
 		public static bool HasDirty => _fullDirty || _dirtyRects.Count > 0;
 
 		/// <summary>The number of cells the last <see cref="FlushDirty"/> re-composited — the whole buffer on a full
-		/// redraw, or the summed dirty-rect area on a partial one. Divided by the buffer area, this is the "fraction
-		/// of the screen re-drawn" the perf HUD reports.</summary>
+		/// redraw, or the covered dirty-rect area on a partial one. Divided by the buffer area, this is the "fraction
+		/// of the screen re-drawn" the perf HUD reports, so it is clamped to the buffer area: dirty rects may overlap
+		/// (a control and an ancestor can both report a region in one frame — over-reporting is allowed, the per-cell
+		/// diff is the backstop), and summing their areas could otherwise exceed the screen and read as &gt;100%.</summary>
 		public static long LastFrameDirtyCells => _lastDirtyCells;
 
 		/// <summary>Marks the whole surface dirty so the next <see cref="FlushDirty"/> re-composites everything. Used
@@ -311,7 +313,9 @@ namespace ConsoleGUI
 				cells += (long)clipped.Width * clipped.Height;
 			}
 			_dirtyRects.Clear();
-			_lastDirtyCells = cells;
+			// Overlapping rects double-count; the diff never emits a cell twice, so true coverage is at most the whole
+			// buffer. Clamp so the reported "fraction re-drawn" can't exceed 100%.
+			_lastDirtyCells = Math.Min(cells, (long)BufferSize.Width * BufferSize.Height);
 		}
 
 		public static void Redraw()

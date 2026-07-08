@@ -73,7 +73,11 @@ namespace ConsoleGUI
 			static async Task WriteAfter(Task previous, AnsiControlSequenceBuilder builder)
 			{
 				try { await previous.ConfigureAwait(false); } catch { }
-				await AnsiOutput(builder).ConfigureAwait(false);
+				// Return the builder to its reuse pool only AFTER its write completes: the write reads builder.Span on
+				// a background thread, so recycling it any earlier could hand the same buffer to the next frame and
+				// overwrite the bytes still being written. A failed write still returns it (the buffer is unread after).
+				try { await AnsiOutput(builder).ConfigureAwait(false); }
+				finally { builder.Return(); }
 			}
 		}
 
@@ -342,7 +346,7 @@ namespace ConsoleGUI
 			int lastY = -1;
 			int lastX = -1;
 
-            var acsb = new AnsiControlSequenceBuilder();
+            var acsb = AnsiControlSequenceBuilder.Rent();
 
             // Track the cell flagged as the cursor (Character.IsCursor). Checked before the diff skip so the
             // cursor is found even on frames where its cell is otherwise unchanged.
@@ -547,7 +551,7 @@ namespace ConsoleGUI
             bool show = CursorBlinkOn();
             if (show == _cursorVisible) return;
 
-            var acsb = new AnsiControlSequenceBuilder();
+            var acsb = AnsiControlSequenceBuilder.Rent();
             if (show)
             {
                 // Nothing else wrote since the last toggle on an idle frame, so the real cursor is still here; the

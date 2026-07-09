@@ -1,4 +1,4 @@
-﻿using ConsoleGUI.Common;
+using ConsoleGUI.Common;
 using ConsoleGUI.Data;
 using ConsoleGUI.Space;
 using ConsoleGUI.Utils;
@@ -87,13 +87,15 @@ namespace ConsoleGUI.Controls
 					case DockedControlPlacement.Bottom:
 						DockedDrawingContext.SetLimits(MinSize.WithHeight(0), MaxSize);
 						FillingDrawingContext.SetLimits(MinSize.Shrink(0, DockedDrawingContext.Size.Height), MaxSize.Shrink(0, DockedDrawingContext.Size.Height));
-						Resize(new Size(Math.Max(DockedDrawingContext.Size.Width, FillingDrawingContext.Size.Width), DockedDrawingContext.Size.Height + FillingDrawingContext.Size.Height));
+						var stacked = new Size(Math.Max(DockedDrawingContext.Size.Width, FillingDrawingContext.Size.Width), DockedDrawingContext.Size.Height + FillingDrawingContext.Size.Height);
+						if (stacked != Size) Resize(stacked);   // only re-cascade when the panel's own size actually changed
 						break;
 					case DockedControlPlacement.Left:
 					case DockedControlPlacement.Right:
 						DockedDrawingContext.SetLimits(MinSize.WithWidth(0), MaxSize);
 						FillingDrawingContext.SetLimits(MinSize.Shrink(DockedDrawingContext.Size.Width, 0), MaxSize.Shrink(DockedDrawingContext.Size.Width, 0));
-						Resize(new Size(DockedDrawingContext.Size.Width + FillingDrawingContext.Size.Width, Math.Max(DockedDrawingContext.Size.Height, FillingDrawingContext.Size.Height)));
+						var sideBySide = new Size(DockedDrawingContext.Size.Width + FillingDrawingContext.Size.Width, Math.Max(DockedDrawingContext.Size.Height, FillingDrawingContext.Size.Height));
+						if (sideBySide != Size) Resize(sideBySide);   // only re-cascade when the panel's own size actually changed
 						break;
 				}
 

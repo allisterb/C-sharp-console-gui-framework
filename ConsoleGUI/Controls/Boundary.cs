@@ -1,4 +1,4 @@
-﻿using ConsoleGUI.Common;
+using ConsoleGUI.Common;
 using ConsoleGUI.Data;
 using ConsoleGUI.Space;
 using ConsoleGUI.Utils;
@@ -113,7 +113,8 @@ namespace ConsoleGUI.Controls
 
 				ContentContext.SetLimits(minSize, maxSize);
 
-				Resize(Size.Clip(minSize, ContentContext.Size, maxSize));
+				var target = Size.Clip(minSize, ContentContext.Size, maxSize);
+				if (target != Size) Resize(target);   // only re-cascade when the clipped size actually changed
 			}
 		}
 

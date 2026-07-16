@@ -4,7 +4,7 @@ using System.Text;
 
 namespace ConsoleGUI.Space
 {
-	public readonly struct Rect
+	public readonly struct Rect : IEquatable<Rect>
 	{
 		public int Left { get; }
 		public int Top { get; }
@@ -102,5 +102,20 @@ namespace ConsoleGUI.Space
 				position.Y >= Top &&
 				position.Y <= Bottom;
 		}
+
+		// Value equality. Rect had none at all, so `a == b` did not compile and `a.Equals(b)` fell through to the
+		// boxing ValueType.Equals — a trap for the damage/dirty-rect lists that pass Rects around. See Size.
+		public bool Equals(Rect other) => this == other;
+
+		public override bool Equals(object obj) => obj is Rect rect && this == rect;
+
+		public override int GetHashCode() => HashCode.Combine(Left, Top, Width, Height);
+
+		public static bool operator ==(in Rect lhs, in Rect rhs) =>
+			lhs.Left == rhs.Left && lhs.Top == rhs.Top && lhs.Width == rhs.Width && lhs.Height == rhs.Height;
+
+		public static bool operator !=(in Rect lhs, in Rect rhs) => !(lhs == rhs);
+
+		public override string ToString() => $"({Left}, {Top}, {Width}x{Height})";
 	}
 }

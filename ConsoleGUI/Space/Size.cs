@@ -1,10 +1,11 @@
+using System;
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace ConsoleGUI.Space
 {
-	public readonly struct Size
+	public readonly struct Size : IEquatable<Size>
 	{
 		public int Width { get; }
 		public int Height { get; }
@@ -68,6 +69,11 @@ namespace ConsoleGUI.Space
 		{
 			return $"({Width}, {Height})";
 		}
+
+		// IEquatable so generic comparisons (EqualityComparer<T>.Default, Dictionary, List.Contains) use this
+		// directly instead of falling back to the boxing, reflective ValueType.Equals. Delegates to ==, so the
+		// semantics are unchanged.
+		public bool Equals(Size other) => this == other;
 
 		public override bool Equals(object obj) => obj is Size size && this == size;
 

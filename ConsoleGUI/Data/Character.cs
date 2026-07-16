@@ -1,3 +1,4 @@
+using System;
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
@@ -101,7 +102,7 @@ namespace ConsoleGUI.Data
             => (Decoration)((int)decoration & ~(StyleMask | ColorFlag));
     }
 
-    public readonly struct Character
+    public readonly struct Character : IEquatable<Character>
 	{
 		public readonly char? Content;
 
@@ -143,6 +144,10 @@ namespace ConsoleGUI.Data
 		}
 
 		public static bool operator !=(in Character lhs, in Character rhs) => !(lhs == rhs);
+
+		// IEquatable: see the note in Size — keeps generic comparisons off the boxing ValueType.Equals path.
+		// (The per-cell diff in ConsoleBuffer.Update uses the lifted != operator above and never went near it.)
+		public bool Equals(Character other) => this == other;
 
 		public override bool Equals(object obj)
 		{

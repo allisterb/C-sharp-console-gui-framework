@@ -1,10 +1,11 @@
+using System;
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace ConsoleGUI.Space
 {
-	public readonly struct Position
+	public readonly struct Position : IEquatable<Position>
 	{
 		public int X { get; }
 		public int Y { get; }
@@ -28,6 +29,9 @@ namespace ConsoleGUI.Space
 
 		public static bool operator ==(in Position lhs, in Position rhs) => lhs.X == rhs.X && lhs.Y == rhs.Y;
 		public static bool operator !=(in Position lhs, in Position rhs) => !(lhs == rhs);
+
+		// IEquatable: see the note in Size — keeps generic comparisons off the boxing ValueType.Equals path.
+		public bool Equals(Position other) => this == other;
 
 		public override bool Equals(object obj) => obj is Position position && this == position;
 

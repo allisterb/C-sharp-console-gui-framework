@@ -5,7 +5,7 @@ using System.Text;
 
 namespace ConsoleGUI.Data
 {
-	public readonly struct Color
+	public readonly struct Color : IEquatable<Color>
 	{
 		public readonly byte Red;
 		public readonly byte Green;
@@ -40,6 +40,9 @@ namespace ConsoleGUI.Data
 			(byte)Math.Min(byte.MaxValue, lhs.Red + rhs.Red), 
 			(byte)Math.Min(byte.MaxValue, lhs.Green + rhs.Green),
 			(byte)Math.Min(byte.MaxValue, lhs.Blue + rhs.Blue));
+
+		// IEquatable: see the note in Size — keeps generic comparisons off the boxing ValueType.Equals path.
+		public bool Equals(Color other) => this == other;
 
 		public override bool Equals(object obj)
 		{

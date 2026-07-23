@@ -366,17 +366,15 @@ namespace ConsoleGUI
 
 					if (!_buffer.Update(position, cell)) continue;
 
-					// Write the glyph, or a blank to erase a cell whose content was just cleared (e.g. a closed
-					// popup). Without the blank the stale glyph persists until a full re-init (resize/clear).
-					var character = cell.Character.Content.HasValue
-						? cell.Character
-						: new Character(' ', cell.Character.Foreground, cell.Character.Background, cell.Character.Decoration);
-
+					// A cleared cell (null Content) still needs a blank written to erase the stale glyph that would
+					// otherwise persist until a full re-init — but WriteCharacterAnsiSequence already emits
+					// `Content ?? ' '`, so pass the cell's Character straight through by `in` (no copy, no per-cell
+					// Character construction) instead of rebuilding a space-glyph Character every changed cell.
 					if (y != lastY || x != lastX + 1)
 					{
 						acsb.MoveCursorTo(y, x);
 					}
-					WriteCharacterAnsiSequence(character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
+					WriteCharacterAnsiSequence(cell.Character, acsb, ref currentFg, ref currentBg, ref currentDecoration);
 					lastY = y;
 					lastX = x;
 					wroteAnything = true;
@@ -482,11 +480,10 @@ namespace ConsoleGUI
 
                     if (!_buffer.Update(position, cell)) continue;
                     if (cell.Character.IsCursor) continue;   // drawn as the software cursor below, not as a raw glyph
-                    // Write the glyph, or a blank to erase a cell whose content was just cleared (e.g. a closed
-                    // popup); otherwise the stale glyph persists until a full re-init (resize/clear).
-                    Console.Write(position, cell.Character.Content.HasValue
-                        ? cell.Character
-                        : new Character(' ', cell.Character.Foreground, cell.Character.Background, cell.Character.Decoration));
+                    // A cleared cell (null Content) still needs a blank to erase the stale glyph that would otherwise
+                    // persist until a full re-init — but IConsole.Write already substitutes `Content ?? ' '`, so pass
+                    // the Character straight through instead of rebuilding a space-glyph Character every changed cell.
+                    Console.Write(position, cell.Character);
                 }
             }
 

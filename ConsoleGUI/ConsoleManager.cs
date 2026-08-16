@@ -56,6 +56,18 @@ namespace ConsoleGUI
 		/// </summary>
 		public static Func<AnsiControlSequenceBuilder, Task> AnsiOutput = static acsb => Task.Run(acsb.WriteToSystemConsole);
 
+		/// <summary>
+		/// The frame number the next <see cref="Emit"/> belongs to. Set by the render loop; carried through the
+		/// write so a completion can be matched back to the frame that produced it.
+		/// </summary>
+		public static long FrameOrdinal;
+
+		/// <summary>
+		/// Raised when a frame's terminal write finishes, with the frame's ordinal and how long it spent queued and
+		/// writing. Runs on a thread-pool thread, off the render loop.
+		/// </summary>
+		public static Action<long, double, double> FrameWritten;
+
 		private static readonly object _outputLock = new object();
 		private static Task _outputTail = Task.CompletedTask;
 
@@ -67,17 +79,38 @@ namespace ConsoleGUI
 		// Task.Run could reorder). A prior frame's failure is swallowed so one bad write can't stall the chain.
 		private static void Emit(AnsiControlSequenceBuilder acsb)
 		{
+			// Captured here, on the render loop, because by the time the write completes the loop has moved on.
+			var ordinal = FrameOrdinal;
 			lock (_outputLock)
-				_outputTail = WriteAfter(_outputTail, acsb);
+				_outputTail = WriteAfter(_outputTail, acsb, ordinal);
 
-			static async Task WriteAfter(Task previous, AnsiControlSequenceBuilder builder)
+			static async Task WriteAfter(Task previous, AnsiControlSequenceBuilder builder, long ordinal)
 			{
+				// Frames queued here but not yet written: the render loop never blocks on the terminal, so if the
+				// terminal is slower than the frame rate this grows without bound — the only visible symptom being
+				// that the display falls behind. Frame time alone can never show that.
+				Interlocked.Increment(ref queuedFrames);
+				var queuedAt = Stopwatch.GetTimestamp();
 				try { await previous.ConfigureAwait(false); } catch { }
+				var writeStartedAt = Stopwatch.GetTimestamp();
 				// Return the builder to its reuse pool only AFTER its write completes: the write reads builder.Span on
 				// a background thread, so recycling it any earlier could hand the same buffer to the next frame and
 				// overwrite the bytes still being written. A failed write still returns it (the buffer is unread after).
 				try { await AnsiOutput(builder).ConfigureAwait(false); }
-				finally { builder.Return(); }
+				finally
+				{
+					var finishedAt = Stopwatch.GetTimestamp();
+					builder.Return();
+					Interlocked.Decrement(ref queuedFrames);
+					RecordOutput(queuedAt, writeStartedAt, finishedAt);
+					if (FrameWritten is { } written)
+					{
+						const double ToMs = 1000.0;
+						written(ordinal,
+							(writeStartedAt - queuedAt) * ToMs / Stopwatch.Frequency,
+							(finishedAt - writeStartedAt) * ToMs / Stopwatch.Frequency);
+					}
+				}
 			}
 		}
 
@@ -756,6 +789,82 @@ namespace ConsoleGUI
                 : null;
         }
 
+        /// <summary>Frames handed to <see cref="AnsiOutput"/> but not yet written, right now.</summary>
+        /// <remarks>An instant reading, so it is usually 0 on a healthy app — the queue drains between frames. Use
+        /// <see cref="OutputQueueDepthPeak"/> to tell whether frames ever backed up.</remarks>
+        public static int OutputQueueDepth => Volatile.Read(ref queuedFrames);
+
+        /// <summary>The most frames left waiting behind a write over the recent window.</summary>
+        /// <remarks>
+        /// A coarse signal only: frames also queue waiting for a thread-pool slot, so a depth of a few appears even
+        /// when the write itself is free — this metric cannot distinguish "the terminal is slow" from "the pool was
+        /// busy". <see cref="AverageOutputWaitTime"/> is the one to trust for back-pressure, because it measures
+        /// time actually spent blocked.
+        /// </remarks>
+        public static int OutputQueueDepthPeak
+        {
+            get
+            {
+                var peak = 0;
+                foreach (var depth in outputQueueDepths)
+                    if (depth > peak) peak = depth;
+                return peak;
+            }
+        }
+
+        /// <summary>Average time (ms) a built frame waited for the previous frame's write before its own could start.</summary>
+        /// <remarks>The queue is unbounded, so this is where terminal back-pressure shows up first.</remarks>
+        public static double AverageOutputWaitTime => Average(outputWaitTimes);
+
+        /// <summary>Average time (ms) the actual console write took — the part that happens off the render loop and
+        /// so is invisible to frame time.</summary>
+        public static double AverageOutputWriteTime => Average(outputWriteTimes);
+
+        /// <summary>
+        /// Discards the recorded write telemetry, so the averages describe only what happens next.
+        /// </summary>
+        /// <remarks>
+        /// The samples are a rolling window that survives anything short of 60 more frames, so a measurement taken
+        /// after a change can otherwise still be describing the state before it.
+        /// </remarks>
+        public static void ResetOutputTelemetry()
+        {
+            Array.Clear(outputWaitTimes);
+            Array.Clear(outputWriteTimes);
+            Array.Clear(outputQueueDepths);
+            outputTimeIndex = 0;
+        }
+
+        // Recorded from the write continuation, off the UI thread. Successive frames' writes are chained, so only one
+        // continuation is ever in this section at a time and the samples need no interlocking of their own; the ring
+        // is read from the UI thread for the HUD, where a stale sample is harmless.
+        private static void RecordOutput(long queuedAt, long writeStartedAt, long finishedAt)
+        {
+            const double ToMs = 1000.0;
+            outputWaitTimes[outputTimeIndex] = (writeStartedAt - queuedAt) * ToMs / Stopwatch.Frequency;
+            outputWriteTimes[outputTimeIndex] = (finishedAt - writeStartedAt) * ToMs / Stopwatch.Frequency;
+            // Frames still queued behind the one that just finished (this frame is already decremented). Sampled
+            // here rather than read live: a backlog is bursty, so an instantaneous read from the HUD would land
+            // between writes and report 0 almost every time even while frames were demonstrably waiting.
+            outputQueueDepths[outputTimeIndex] = Volatile.Read(ref queuedFrames);
+            outputTimeIndex = (outputTimeIndex + 1) % outputTimeSamples;
+        }
+
+        private static double Average(double[] samples)
+        {
+            double total = 0;
+            int count = 0;
+            foreach (var time in samples)
+            {
+                if (time > 0)
+                {
+                    total += time;
+                    count++;
+                }
+            }
+            return count > 0 ? total / count : 0;
+        }
+
         public static double AverageDrawTime
         {
             get
@@ -787,6 +896,15 @@ namespace ConsoleGUI
 
 		private static readonly int drawTimeSamples = 60;
         private static readonly double[] drawTimes = new double[drawTimeSamples];
+
+        // Terminal-write telemetry (see RecordOutput). Same window size as the draw/paint rings so the HUD's numbers
+        // all describe the same recent history.
+        private const int outputTimeSamples = 60;
+        private static readonly double[] outputWaitTimes = new double[outputTimeSamples];
+        private static readonly double[] outputWriteTimes = new double[outputTimeSamples];
+        private static readonly int[] outputQueueDepths = new int[outputTimeSamples];
+        private static int outputTimeIndex;
+        private static int queuedFrames;
 		private static readonly Stopwatch drawTimer = new Stopwatch();		
         private static int drawTimeIndex = 0;
     }

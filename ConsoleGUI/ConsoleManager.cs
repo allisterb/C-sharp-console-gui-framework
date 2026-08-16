@@ -659,19 +659,39 @@ namespace ConsoleGUI
 			acsb.PrintChar(character.Content ?? ' ');
 		}
 
-        public static void Resize(in Size size)
+        /// <summary>
+        /// Adopts a size the console reports: re-sizes the internal buffer and re-initializes, WITHOUT commanding
+        /// the terminal.
+        /// </summary>
+        /// <remarks>
+        /// Adopting an observed size must never write one back. <see cref="Resize"/> assigns
+        /// <c>Console.Size</c>, whose StandardConsole setter drives SetBufferSize/SetWindowSize — and those can fail
+        /// or clamp silently, so the size read back next frame differs again and the whole UI re-lays-out every
+        /// frame. That is what this split prevents: observing a resize adapts the app to the terminal, and only a
+        /// caller that genuinely owns the terminal geometry calls <see cref="Resize"/>.
+        /// </remarks>
+        public static void AdoptSize(in Size size)
         {
-            Console.Size = size;
+            Console.AdoptSize(size);
             _buffer.Initialize(size);
 
             Initialize();
+        }
+
+        /// <summary>Commands the console to <paramref name="size"/> and adopts it. For callers that own the terminal
+        /// geometry; to follow a resize the terminal reports, use <see cref="AdoptSize"/>.</summary>
+        public static void Resize(in Size size)
+        {
+            Console.Size = size;
+            AdoptSize(size);
         }
 
         public static bool AdjustBufferSize()
         {
             if (WindowSize != BufferSize)
             {
-                Resize(WindowSize);
+                // Observed, not requested: follow the terminal rather than trying to steer it.
+                AdoptSize(WindowSize);
                 return true;
             }
 

@@ -16,12 +16,25 @@ namespace ConsoleGUI.Api
 			{
 				SafeConsole.SetCursorPosition(0, 0);
 				SafeConsole.SetWindowPosition(0, 0);
-				if (!(Size <= value)) SafeConsole.SetWindowSize(1, 1);
+				// Windows refuses a buffer smaller than the window, so the window has to shrink first — but only to
+				// the target size, never to 1x1. SafeConsole swallows failures, so if either call below failed the
+				// old 1x1 step left the console window collapsed to a single cell: the app looks like it vanished
+				// while the process is still running.
+				if (!(Size <= value))
+				{
+					var current = Size;
+					SafeConsole.SetWindowSize(Math.Min(current.Width, value.Width), Math.Min(current.Height, value.Height));
+				}
+
 				SafeConsole.SetBufferSize(value.Width, value.Height);
 				if (Size != value) SafeConsole.SetWindowSize(value.Width, value.Height);
 				Initialize();
 			}
 		}
+
+		// Match the scroll buffer to the window the terminal has already settled on, so the host shows no scrollbar
+		// over a full-screen UI. Only the buffer — never SetWindowSize, which is what fights the user's window.
+		public void AdoptSize(in Size size) => SafeConsole.SetBufferSize(size.Width, size.Height);
 
 		public bool KeyAvailable => Console.KeyAvailable;
 
